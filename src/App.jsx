@@ -39,7 +39,6 @@ function App() {
   const [detailTaskId, setDetailTaskId] = useState(null);
   const [toast, setToast] = useState('');
 
-  // Khởi tạo: check token và load user từ API
   useEffect(() => {
     const initAuth = async () => {
       const token = localStorage.getItem('taskflow_token');
@@ -179,6 +178,11 @@ function App() {
     }
   };
 
+  const refreshTodos = async () => {
+    const todos = await todoService.getTodos();
+    setTasks(mapBackendTodosToTasks(todos));
+  };
+
   const handleMoveTask = async (taskId, columnId) => {
     try {
       const task = tasks.find((t) => t.id === taskId);
@@ -245,7 +249,6 @@ function App() {
           <div className="header-user">
             <div className="avatar">{userInitials}</div>
             <div className="user-info">
-              <div className="user-name">{currentUser.username}</div>
               <button type="button" className="btn btn-ghost logout-btn" onClick={handleLogout}>
                 Đăng xuất
               </button>
@@ -255,10 +258,6 @@ function App() {
       </header>
 
       <main className="board-wrapper">
-        <section className="board-header">
-          <h1 className="board-title">🚀 Project Alpha</h1>
-          <p className="board-subtitle">4 members · Sprint 3 · Updated just now</p>
-        </section>
         <Board
           columns={columns}
           tasksByColumn={tasksByColumn}
@@ -294,7 +293,7 @@ function App() {
         />
       )}
 
-      <ChatAssistant tasks={tasks} columns={columns} />
+      <ChatAssistant tasks={tasks} columns={columns} onRefreshTodos={refreshTodos} />
 
       {toast && <div className="toast-notice">{toast}</div>}
     </div>

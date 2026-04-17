@@ -1,6 +1,6 @@
 import PropTypes from 'prop-types';
-import { useEffect, useState } from 'react';
-import { chatService } from '../services/api.js';
+import { useEffect, useRef, useState } from 'react';
+import { chatService, todoService } from '../services/api.js';
 
 const suggestions = [
   'Tôi còn task nào chưa làm?',
@@ -8,10 +8,19 @@ const suggestions = [
   'Tổng quan công việc hôm nay?',
 ];
 
-function ChatAssistant({ tasks, columns }) {
+const ACTION_LABELS = {
+  create_todo: 'Tạo todo mới',
+  update_todo: 'Cập nhật todo',
+  delete_todo: 'Xóa todo',
+};
+
+function ChatAssistant({ tasks, columns, onRefreshTodos }) {
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
+  const [pendingAction, setPendingAction] = useState(null);
+  const [executing, setExecuting] = useState(false);
+  const messagesEndRef = useRef(null);
 
   useEffect(() => {
     if (!open) return;
@@ -21,6 +30,10 @@ function ChatAssistant({ tasks, columns }) {
       ]);
     }
   }, [open, messages.length]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, pendingAction]);
 
   const toggleChat = () => {
     setOpen((value) => !value);
@@ -42,25 +55,45 @@ function ChatAssistant({ tasks, columns }) {
       const response = await chatService.sendMessage(message);
       const aiMessage = { id: Date.now() + 1, role: 'ai', text: response.answer || 'Không có phản hồi từ AI' };
       setMessages((current) => [...current, aiMessage]);
+      if (response.suggested_action) {
+        setPendingAction(response.suggested_action);
+      }
     } catch (error) {
       const errorMessage = { id: Date.now() + 1, role: 'ai', text: 'Lỗi: ' + error.message };
       setMessages((current) => [...current, errorMessage]);
     }
   };
 
-  const sendSuggestion = (text) => {
-    setInput(text);
-    setTimeout(() => sendSuggestionAsync(text), 10);
+  const executeAction = async () => {
+    if (!pendingAction) return;
+    setExecuting(true);
+    try {
+      const { action, todo_id, payload } = pendingAction;
+      if (action === 'create_todo') {
+        await todoService.createTodo(payload);
+      } else if (action === 'update_todo') {
+        await todoService.updateTodo(todo_id, payload);
+      } else if (action === 'delete_todo') {
+        await todoService.deleteTodo(todo_id);
+      }
+      await onRefreshTodos();
+      const doneMsg = { id: Date.now(), role: 'ai', text: '✅ Đã thực hiện xong!' };
+      setMessages((current) => [...current, doneMsg]);
+    } catch (error) {
+      const errMsg = { id: Date.now(), role: 'ai', text: 'Lỗi khi thực hiện: ' + error.message };
+      setMessages((current) => [...current, errMsg]);
+    } finally {
+      setPendingAction(null);
+      setExecuting(false);
+    }
   };
 
-  const sendSuggestionAsync = async (message) => {
-    const trimmed = message.trim();
+  const sendSuggestion = async (text) => {
+    const trimmed = text.trim();
     if (!trimmed) return;
-
+    setInput('');
     const userMessage = { id: Date.now(), role: 'user', text: trimmed };
     setMessages((current) => [...current, userMessage]);
-    setInput('');
-    
     await handleChatResponse(trimmed);
   };
 
@@ -99,6 +132,23 @@ function ChatAssistant({ tasks, columns }) {
                 <div className="bubble-time">{new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</div>
               </div>
             ))}
+            {pendingAction && (
+              <div className="chat-confirm-card">
+                <div className="confirm-title">{ACTION_LABELS[pendingAction.action] || pendingAction.action}</div>
+                <div className="confirm-body">
+                  &ldquo;{pendingAction.payload?.title || `Todo #${pendingAction.todo_id}`}&rdquo;
+                </div>
+                <div className="confirm-actions">
+                  <button type="button" className="btn-confirm-yes" onClick={executeAction} disabled={executing}>
+                    {executing ? '...' : 'Có'}
+                  </button>
+                  <button type="button" className="btn-confirm-no" onClick={() => setPendingAction(null)} disabled={executing}>
+                    Không
+                  </button>
+                </div>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
           </div>
           <div className="chat-suggestions">
             {suggestions.map((text) => (
@@ -127,6 +177,7 @@ function ChatAssistant({ tasks, columns }) {
 ChatAssistant.propTypes = {
   tasks: PropTypes.array.isRequired,
   columns: PropTypes.array.isRequired,
+  onRefreshTodos: PropTypes.func.isRequired,
 };
 
 export default ChatAssistant;
